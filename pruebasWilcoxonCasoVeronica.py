@@ -1,63 +1,65 @@
 import pandas as pd
 from scipy.stats import wilcoxon
 
-# Ruta del archivo con las muestras
-file_path = 'MuestrasAplicandoFiltrado.xlsx'
+# Tabla de valores críticos para Wilcoxon (α=0.05, dos colas)
+valores_criticos = {
+    5: 0, 6: 2, 7: 3, 8: 3, 9: 5, 10: 8,
+    11: 10, 12: 13, 13: 17, 14: 21, 15: 25,
+    16: 30, 17: 35, 18: 41, 19: 47, 20: 53,
+    21: 60, 22: 67, 23: 75, 24: 83, 25: 91
+}
 
-# Cargar las muestras de las tres hojas
-df_nla = pd.read_excel(file_path, sheet_name='WILCOXON-C2-NLA')
-df_nlm = pd.read_excel(file_path, sheet_name='WILCOXON-C2-NLM')
-df_nlb = pd.read_excel(file_path, sheet_name='WILCOXON-C2-NLB')
+archivo = 'MuestrasAplicandoFiltrado.xlsx'
+hojas = {
+    'WILCOXON-C2-NLA': 'Nivel Lectura Alto',
+    'WILCOXON-C2-NLM': 'Nivel Lectura Medio',
+    'WILCOXON-C2-NLB': 'Nivel Lectura Bajo'
+}
 
-def valor_critico_wilcoxon(n):
-    # Tabla resumida de valores críticos para Wilcoxon bilateral, alfa = 0.05
-    # Fuente: https://www.socscistatistics.com/tests/wilcoxon/default2.aspx
-    tabla = {
-        5: 0, 6: 2, 7: 3, 8: 4, 9: 5, 10: 8, 11: 10, 12: 13, 13: 17, 14: 21, 15: 25, 16: 30, 17: 35, 18: 41, 19: 47, 20: 53
-    }
-    return tabla.get(n, 'N/A')
+resultados = []
 
-def prueba_wilcoxon(df, nivel):
-    # Elimina filas con valores faltantes
-    df = df.dropna(subset=['Puntaje_Pretest', 'Puntaje_Postest'])
-    pre = df['Puntaje_Pretest']
-    post = df['Puntaje_Postest']
-    # Elimina diferencias cero (Wilcoxon requiere esto)
-    mask = (post - pre) != 0
-    pre_filtrado = pre[mask]
-    post_filtrado = post[mask]
-    n = len(pre_filtrado)
-    if n < 5:
-        stat = p_value = v_critico = 'N/A'
-        conclusion = 'No se puede calcular (menos de 5 pares válidos)'
+for hoja, nombre in hojas.items():
+    datos = pd.read_excel(archivo, sheet_name=hoja)
+    datos = datos.dropna(subset=['Puntaje_Pretest', 'Puntaje_Postest'])
+    pre = datos['Puntaje_Pretest']
+    post = datos['Puntaje_Postest']
+
+    # Calcular diferencias y contar pares no nulos (diferencias != 0)
+    diferencias = pre - post
+    n_pares = sum(diferencias != 0)
+
+    # Si hay menos de 5 pares no nulos, no hay tabla disponible
+    if n_pares < 5:
+        w, p = wilcoxon(pre, post, zero_method='wilcox', correction=True)
+        valor_critico = 'No disponible (pares < 5)'
+        conclusion = "Muestra insuficiente para valor crítico en tablas"
     else:
-        stat, p_value = wilcoxon(pre_filtrado, post_filtrado, zero_method='wilcox')
-        v_critico = valor_critico_wilcoxon(n)
-        # Validación de hipótesis
-        alpha = 0.05
-        if p_value < alpha:
-            conclusion = 'Rechazamos la hipótesis nula: hay diferencia significativa pre-post.'
+        # Seleccionar solo pares no nulos para la prueba (opcional, scipy maneja bien)
+        # Aquí scipy wilcoxon ignora ceros automáticamente si zero_method='wilcox'
+        w, p = wilcoxon(pre, post, zero_method='wilcox')
+        valor_critico = valores_criticos.get(n_pares, 'No disponible')
+        if valor_critico == 'No disponible':
+            conclusion = "Valor crítico no disponible para este tamaño muestral"
         else:
-            conclusion = 'No se rechaza la hipótesis nula: no hay diferencia significativa pre-post.'
-    # Reporte
-    return {
-        'Nivel de Lectura': nivel,
-        'N': n,
-        'Estadístico Wilcoxon (W)': stat,
-        'Valor crítico (tabla)': v_critico,
-        'Valor p': p_value,
+            if p < 0.05 and w <= valor_critico:
+                conclusion = "Diferencia significativa (p < 0.05 y W ≤ valor crítico)"
+            else:
+                conclusion = "Sin diferencia significativa"
+
+    resultados.append({
+        'Grupo': nombre,
+        'Muestra total (n)': len(datos),
+        'Pares no nulos (n)': n_pares,
+        'Estadístico W': w,
+        'Valor crítico (α=0.05, 2 colas)': valor_critico,
+        'Valor p': round(p, 5),
         'Conclusión': conclusion
-    }
+    })
 
-# Ejecutar para cada nivel
-reporte_nla = prueba_wilcoxon(df_nla, 'Alto')
-reporte_nlm = prueba_wilcoxon(df_nlm, 'Medio')
-reporte_nlb = prueba_wilcoxon(df_nlb, 'Bajo')
+df_resultados = pd.DataFrame(resultados)
 
-# Crear DataFrame resumen
-reporte_df = pd.DataFrame([reporte_nlb, reporte_nlm, reporte_nla])
+# Guardar reporte en Excel
+df_resultados.to_excel('Reporte_Wilcoxon_Afinado.xlsx', index=False)
 
-# Guardar el reporte en un archivo Excel
-reporte_df.to_excel('Reporte_Wilcoxon_Resultados.xlsx', index=False)
-
-print(reporte_df)
+print("Reporte generado: Reporte_Wilcoxon_Afinado.xlsx\n")
+print(df_resultados)
